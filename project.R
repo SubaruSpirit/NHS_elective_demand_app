@@ -1,6 +1,8 @@
 library(shiny)
 library(tidyverse)
 library(purrr)
+library(tools)
+library(vroom)
 
 list1 = read_csv("List.csv")
 
@@ -86,8 +88,30 @@ ui <- fluidPage(
                  uiOutput("ui_modality_minutes"),
                            width = 2
                ),
-               mainPanel("", width = 8)
-             )
+               mainPanel(
+                 fluidRow(
+                   column(6,
+                          titlePanel("Template")
+                   ),
+                   column(2,
+                          downloadButton("download1", "Download Template")
+                   )
+                 ),
+                 fluidRow(
+                   dataTableOutput("template")),
+                 fluidRow(
+                   column(4,
+                          titlePanel("Import")
+                   ),
+                   column(4,
+                          fileInput("file_import",
+                                    "Import Data", accept = c(".csv", ".tsv"))
+                   )
+                 ),
+                 fluidRow(
+                   dataTableOutput("imported_data")),
+                   width = 8
+             ))
              , value = "panel2"),
     tabPanel("panel 3", "Panel three contents"),
     widths = c(2, 10)
@@ -123,17 +147,74 @@ server <- function(input, output, session) {
 ### Demand ###################################################################
   # planned activity
   output$planned_status = renderText(input$planned_activity)
+  
   # emergency activity
   output$emergency_status = renderText(input$emergency)
+  
   # dynamic UI for different modalities to input minutes
   output$ui_modality_minutes <- renderUI({
+    # if the unit of work is minutes, then give users options to input
     if (input$unit_of_work == "Minutes") {
       map2(modality_minutes(), map_chr(modality_names(),~input[[.x]]%||% ""),
-           ~ numericInput(.x, label = .y,value = isolate(input[[.x]])))
+           ~ numericInput(.x, label = paste(.y," minutes"),value = isolate(input[[.x]])))
     } else {
       ""
     }
   })
+  
+  # build the data frame
+  # reactivity
+  date_seq1 = reactive({ymd(as.Date(input$week_starting,
+                                    format="%d-%m-%Y"))})
+  date_seq2 = reactive({ymd(as.Date(input$week_starting,
+                                    format="%d-%m-%Y")%m+% years(2))})
+  df1 = reactive({tibble(Year=strftime(seq(date_seq1(),
+                                           date_seq2(),
+                                           by = '1 week'), format = "%G"),
+                         Week=strftime(seq(date_seq1(),
+                                           date_seq2(),
+                                           by = '1 week'), format = "%V"),
+                         Date=seq(date_seq1(),
+                                  date_seq2(),
+                                  by = '1 week'),
+                         !!input$urgency1 := "",
+                         !!input$urgency2 := "",
+                         !!input$urgency3 := ""
+                         )})
+  # add a column of emergency if emergency is selected as Yes
+  df2 = reactive({add_column(df1(),Emergency="")})
+  
+  output$template = renderDataTable({
+    if(input$emergency=="No"){
+      df1()
+    } else {df2()}
+  }, options = list(pageLength = 10,searching=F,ordering=F))
+  
+  # download the data frame
+  output$download1 <- downloadHandler(
+    filename = function(){"user_template.csv"}, 
+    content = function(file){
+      if(input$emergency=="No"){
+      write.csv(df1(), file,row.names = FALSE)
+      } else {write.csv(df2(), file,row.names = FALSE)}
+    }
+  )
+  
+  # import the data
+  df3 <- reactive({
+    req(input$file_import)
+    
+    ext <- tools::file_ext(input$file_import$name)
+    switch(ext,
+           csv = vroom::vroom(input$file_import$datapath, delim = ","),
+           tsv = vroom::vroom(input$file_import$datapath, delim = "\t"),
+           validate("Invalid file; Please upload a .csv or .tsv file")
+    )
+  })
+  
+  output$imported_data <- renderDataTable({
+    df3()
+  }, options = list(pageLength = 10,searching=F,ordering=F))
   
 }
 
