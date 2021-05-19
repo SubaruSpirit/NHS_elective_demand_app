@@ -3,7 +3,10 @@ library(tidyverse)
 library(purrr)
 library(tools)
 library(vroom)
+library(reactable)
+library(reactlog)
 
+reactlog::reactlog_enable()
 list1 = read_csv("List.csv")
 
 ui <- fluidPage(
@@ -98,7 +101,7 @@ ui <- fluidPage(
                    )
                  ),
                  fluidRow(
-                   dataTableOutput("template")),
+                   reactableOutput("template")),
                  fluidRow(
                    column(4,
                           titlePanel("Import")
@@ -109,7 +112,7 @@ ui <- fluidPage(
                    )
                  ),
                  fluidRow(
-                   dataTableOutput("imported_data")),
+                   reactableOutput("imported_data")),
                    width = 8
              ))
              , value = "panel2"),
@@ -176,32 +179,44 @@ server <- function(input, output, session) {
                                            by = '1 week'), format = "%V"),
                          Date=seq(date_seq1(),
                                   date_seq2(),
-                                  by = '1 week'),
-                         !!input$urgency1 := "",
-                         !!input$urgency2 := "",
-                         !!input$urgency3 := ""
-                         )})
+                                  by = '1 week'))})
+  
   # add a column of emergency if emergency is selected as Yes
   df2 = reactive({add_column(df1(),Emergency="")})
   
-  output$template = renderDataTable({
+  output$template = renderReactable({
     if(input$emergency=="No"){
-      df1()
-    } else {df2()}
-  }, options = list(pageLength = 10,searching=F,ordering=F))
+      reactable(df1())
+    } else {reactable(df2())}
+  })
+  
+  # if No_modality>1, add more columns of urgency to the data frame
+  columnsToAdd = reactive({
+    c(outer(c(input$urgency1,input$urgency2,input$urgency3),
+            seq_len(input$No_modalities), paste0))
+  })
+  
+    df3 = reactive({
+      add_column(if(input$emergency=="No"){df1()} else {df2()}, 
+                 !!!set_names(as.list(rep("",length(columnsToAdd()))),
+                                                  nm=columnsToAdd()))
+      })
+    
+    output$template = renderReactable({
+      reactable(df3())
+    })
+
   
   # download the data frame
   output$download1 <- downloadHandler(
     filename = function(){"user_template.csv"}, 
     content = function(file){
-      if(input$emergency=="No"){
-      write.csv(df1(), file,row.names = FALSE)
-      } else {write.csv(df2(), file,row.names = FALSE)}
+      write.csv(df3(), file,row.names = FALSE)
     }
   )
   
   # import the data
-  df3 <- reactive({
+  df4 <- reactive({
     req(input$file_import)
     
     ext <- tools::file_ext(input$file_import$name)
@@ -212,9 +227,9 @@ server <- function(input, output, session) {
     )
   })
   
-  output$imported_data <- renderDataTable({
-    df3()
-  }, options = list(pageLength = 10,searching=F,ordering=F))
+  output$imported_data <- renderReactable({
+    reactable(df4())
+  })
   
 }
 
