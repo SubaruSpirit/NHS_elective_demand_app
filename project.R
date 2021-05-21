@@ -116,7 +116,9 @@ ui <- fluidPage(
                    width = 8
              ))
              , value = "panel2"),
-    tabPanel("panel 3", "Panel three contents"),
+    tabPanel("panel 3",
+             textOutput("dataset1"),
+             value = "panel3"),
     widths = c(2, 10)
   )
 )
@@ -159,7 +161,8 @@ server <- function(input, output, session) {
     # if the unit of work is minutes, then give users options to input
     if (input$unit_of_work == "Minutes") {
       map2(modality_minutes(), map_chr(modality_names(),~input[[.x]]%||% ""),
-           ~ numericInput(.x, label = paste(.y," minutes"),value = isolate(input[[.x]])))
+           ~ numericInput(.x, label = paste(.y," minutes"),
+                          value = 0))
     } else {
       ""
     }
@@ -170,7 +173,7 @@ server <- function(input, output, session) {
   date_seq1 = reactive({ymd(as.Date(input$week_starting,
                                     format="%d-%m-%Y"))})
   date_seq2 = reactive({ymd(as.Date(input$week_starting,
-                                    format="%d-%m-%Y")%m+% years(2))})
+                                    format="%d-%m-%Y")%m+% years(3))})
   df1 = reactive({tibble(Year=strftime(seq(date_seq1(),
                                            date_seq2(),
                                            by = '1 week'), format = "%G"),
@@ -181,23 +184,21 @@ server <- function(input, output, session) {
                                   date_seq2(),
                                   by = '1 week'))})
   
-  # add a column of emergency if emergency is selected as Yes
-  df2 = reactive({add_column(df1(),Emergency="")})
-  
-  output$template = renderReactable({
-    if(input$emergency=="No"){
-      reactable(df1())
-    } else {reactable(df2())}
-  })
-  
   # if No_modality>1, add more columns of urgency to the data frame
   columnsToAdd = reactive({
-    c(outer(c(input$urgency1,input$urgency2,input$urgency3),
-            seq_len(input$No_modalities), paste0))
+    # columnsToAdd can be difference based on emergency
+    if(input$emergency=="No"){
+      c(outer(c(input$urgency1,input$urgency2,input$urgency3),
+              seq_len(input$No_modalities), paste0))
+    } else {
+      c(outer(c(input$urgency1,input$urgency2,input$urgency3, "Emergency"),
+              seq_len(input$No_modalities), paste0))
+    }
+    
   })
   
     df3 = reactive({
-      add_column(if(input$emergency=="No"){df1()} else {df2()}, 
+      add_column(df1(), 
                  !!!set_names(as.list(rep("",length(columnsToAdd()))),
                                                   nm=columnsToAdd()))
       })
@@ -221,15 +222,47 @@ server <- function(input, output, session) {
     
     ext <- tools::file_ext(input$file_import$name)
     switch(ext,
-           csv = vroom::vroom(input$file_import$datapath, delim = ","),
-           tsv = vroom::vroom(input$file_import$datapath, delim = "\t"),
+           csv = vroom::vroom(input$file_import$datapath, delim = ",",
+                              col_types = set_names(
+                                rep("d",length(columnsToAdd())) ,columnsToAdd())
+                              ),
+           tsv = vroom::vroom(input$file_import$datapath, delim = "\t",
+                              col_types = set_names(
+                                rep("d",length(columnsToAdd())) ,columnsToAdd())
+                              ),
            validate("Invalid file; Please upload a .csv or .tsv file")
     )
   })
   
-  output$imported_data <- renderReactable({
-    reactable(df4())
+  # add total patients column
+  df5 = reactive({
+    df4() %>%
+      replace(is.na(.), 0) %>%
+      rowwise() %>%mutate(Total_patients = sum(c_across(columnsToAdd())))
   })
+  
+  # add total minutes column based on minutes
+  df6 <- reactive({df5()})
+  
+  df6 = reactive({if(input$unit_of_work == "Minutes"){
+    add_column(df5(), Total_minutes = sapply(
+      seq(4
+        , (ncol(df5())-1), length(columnsToAdd())/(input$No_modalities)), function(i){ 
+        rowSums(df5()[, i + 0:( 
+          (length(columnsToAdd())/(input$No_modalities)-1)
+          )])
+      }) %*% sapply(modality_minutes(), function(i){ input[[ i ]] } ))
+  } else { df5() }
+  })
+
+  output$imported_data <- renderReactable({
+    reactable(df6())
+  })
+  
+### SPC chart ###############################################################
+  
+  
+  
   
 }
 
