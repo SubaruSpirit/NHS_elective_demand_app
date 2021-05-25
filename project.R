@@ -5,6 +5,8 @@ library(tools)
 library(vroom)
 library(reactable)
 library(reactlog)
+library(Rspc)
+library(plotly)
 
 reactlog::reactlog_enable()
 list1 = read_csv("List.csv")
@@ -113,11 +115,41 @@ ui <- fluidPage(
                  ),
                  fluidRow(
                    reactableOutput("imported_data")),
+                 fluidRow(
+                   sidebarLayout(
+                     sidebarPanel(actionButton("jump_to_spc","Next"),width = 5
+                     ),
+                     mainPanel("", width = 5)
+                   )
+                 ),
                    width = 8
              ))
              , value = "panel2"),
-    tabPanel("panel 3",
-             textOutput("dataset1"),
+    tabPanel("SPC Chart",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput(
+                   "select_season", label = "Display type",
+                   choices = c("1 season", "1+season")
+                 ),
+                 dateRangeInput(
+                   "baseline_date", label = "Baseline selection",
+                   format = "dd-mm-yyyy"
+                 ),
+                 h5("Baseline period"),
+                 verbatimTextOutput(
+                   "baseline_period"
+                 )
+                 ,width = 3
+               ),
+               mainPanel(
+                 plotlyOutput(
+                       "plot1"
+                     )
+                 , width = 7
+               )
+             )
+             ,
              value = "panel3"),
     widths = c(2, 10)
   )
@@ -223,12 +255,20 @@ server <- function(input, output, session) {
     ext <- tools::file_ext(input$file_import$name)
     switch(ext,
            csv = vroom::vroom(input$file_import$datapath, delim = ",",
-                              col_types = set_names(
-                                rep("d",length(columnsToAdd())) ,columnsToAdd())
+                              col_types = c(
+                                list(Date = col_date(format = "%d/%m/%Y")),
+                                set_names(
+                                  rep("d",length(columnsToAdd())) ,
+                                  columnsToAdd())
+                              )
                               ),
            tsv = vroom::vroom(input$file_import$datapath, delim = "\t",
-                              col_types = set_names(
-                                rep("d",length(columnsToAdd())) ,columnsToAdd())
+                              col_types = c(
+                                list(Date = col_date(format = "%d/%m/%Y")),
+                                set_names(
+                                  rep("d",length(columnsToAdd())) ,
+                                  columnsToAdd())
+                              )
                               ),
            validate("Invalid file; Please upload a .csv or .tsv file")
     )
@@ -247,6 +287,8 @@ server <- function(input, output, session) {
   df6 = reactive({if(input$unit_of_work == "Minutes"){
     add_column(df5(), Total_minutes = sapply(
       seq(4
+          # no need for if statement for whether emergency or not as 
+          # columnsToAdd is already conditional based on emergency
         , (ncol(df5())-1), length(columnsToAdd())/(input$No_modalities)), function(i){ 
         rowSums(df5()[, i + 0:( 
           (length(columnsToAdd())/(input$No_modalities)-1)
@@ -259,9 +301,82 @@ server <- function(input, output, session) {
     reactable(df6())
   })
   
+  # next button logic
+  observeEvent(input$jump_to_spc, {
+    updateTabsetPanel(session, "tabset",
+                      selected = "panel3")
+  })
+  
 ### SPC chart ###############################################################
+  # update the data range when click the next button
+  observeEvent(input$jump_to_spc, {
+    updateDateRangeInput(
+      session, "baseline_date",
+      start = df6()[["Date"]][1],
+      end = df6()[["Date"]][53]
+    )
+  })
   
+  output$baseline_period = renderText({
+    paste(
+      as.numeric(
+        difftime(input$baseline_date[2], input$baseline_date[1],
+                 units = "weeks")
+      ),"weeks")
+  })
   
+  output$plot1 = renderPlotly({
+    # filter the date as the input in the dateRangeInput
+    df7 = dplyr::filter(
+      df6(), between(Date, input$baseline_date[1],
+                            input$baseline_date[2])
+    )
+    
+    # generate mean, ucl, lcl, etc
+    Mean = mean(df7$Total_minutes)
+    UCL = CalculateLimits(x = df7$Total_minutes)$ucl
+    LCL = CalculateLimits(x = df7$Total_minutes)$lcl
+    UP = quantile(df7$Total_minutes, probs = 0.85)
+    LP = quantile(df7$Total_minutes, probs = (input$lower_perc)/100)
+    
+    # add nelson rules
+    df8 = df6()
+    df9 = add_column(df8, EvaluateRules(
+      x = c(df8$Total_minutes), type = 'i', whichRules = c(1,5,3,2),
+      lcl = LCL, cl= Mean, ucl = UCL
+      ))
+    
+    # rectangle
+    rect_range = tibble(xmin=as.Date(input$baseline_date[1]),
+                        xmax=as.Date(input$baseline_date[2]),
+                        ymin=min(df8$Total_minutes)*0.95,
+                        ymax=max(df8$Total_minutes)*1.05)
+    
+    # ggplot
+    ggplot(data=df6())+
+      geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
+                                     ymin=ymin, ymax=ymax),
+                color="grey20",
+                alpha=0.2,
+                inherit.aes = FALSE)+
+      geom_line(aes(x=Date, y=Total_minutes))+
+      geom_hline(yintercept = LP, lty=2, col="purple")+
+      geom_hline(yintercept = UP, lty=2, col="red")+
+      geom_hline(yintercept = UCL, lty=3, col="blue")+
+      geom_hline(yintercept = LCL, lty=3, col="orange")+
+      geom_hline(yintercept = Mean, lty=3, col="brown")+
+      geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_minutes),
+                 color="red", shape=15)+
+      geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_minutes),
+                 color="green", shape=15)+
+      geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_minutes),
+                 color="purple", shape=15)+
+      geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_minutes),
+                 color="orange", shape=15)+
+      theme_bw()
+      
+  })
+
   
   
 }
