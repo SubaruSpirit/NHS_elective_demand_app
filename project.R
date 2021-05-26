@@ -46,9 +46,10 @@ ui <- fluidPage(
                              of same day (eg. emergency) activity?",
                              choices = list("Yes","No"), selected = "No")
                ),
-               column(5,
+               column(5, 
+                      # only patients and minutes so far, points removed
                  selectInput("unit_of_work", label = "Unit of work",
-                             choices = list("Patients","Minutes","Points"),
+                             choices = list("Patients","Minutes"),
                              selected = "Minutes")
                )
              ),
@@ -218,7 +219,7 @@ server <- function(input, output, session) {
   
   # if No_modality>1, add more columns of urgency to the data frame
   columnsToAdd = reactive({
-    # columnsToAdd can be difference based on emergency
+    # columnsToAdd can be different based on emergency
     if(input$emergency=="No"){
       c(outer(c(input$urgency1,input$urgency2,input$urgency3),
               seq_len(input$No_modalities), paste0))
@@ -282,8 +283,6 @@ server <- function(input, output, session) {
   })
   
   # add total minutes column based on minutes
-  df6 <- reactive({df5()})
-  
   df6 = reactive({if(input$unit_of_work == "Minutes"){
     add_column(df5(), Total_minutes = sapply(
       seq(4
@@ -312,8 +311,13 @@ server <- function(input, output, session) {
   observeEvent(input$jump_to_spc, {
     updateDateRangeInput(
       session, "baseline_date",
-      start = df6()[["Date"]][1],
-      end = df6()[["Date"]][53]
+      # start is 52 weeks before the last week data, can CRASH if data is 
+      # less than 52 weeks
+      start = if(nrow(df6())>52){
+        df6()[[nrow(df6())-52,"Date"]]
+      } else {df6()[[nrow(df6())-1,"Date"]]},
+        
+      end = last(df6()[["Date"]])
     )
   })
   
@@ -326,56 +330,102 @@ server <- function(input, output, session) {
   })
   
   output$plot1 = renderPlotly({
-    # filter the date as the input in the dateRangeInput
+    # filter the date as the input in the dateRangeInput, df7 is the baseline
     df7 = dplyr::filter(
       df6(), between(Date, input$baseline_date[1],
                             input$baseline_date[2])
     )
     
-    # generate mean, ucl, lcl, etc
-    Mean = mean(df7$Total_minutes)
-    UCL = CalculateLimits(x = df7$Total_minutes)$ucl
-    LCL = CalculateLimits(x = df7$Total_minutes)$lcl
-    UP = quantile(df7$Total_minutes, probs = 0.85)
-    LP = quantile(df7$Total_minutes, probs = (input$lower_perc)/100)
+    # generate mean, ucl, lcl, etc for the baseline data
+    Mean = if(input$unit_of_work == "Minutes"){
+      mean(df7$Total_minutes)
+    } else {mean(df7$Total_patients)}
     
-    # add nelson rules
+    UCL = if(input$unit_of_work == "Minutes"){
+      CalculateLimits(x = df7$Total_minutes)$ucl
+    } else {CalculateLimits(x = df7$Total_patients)$ucl}
+    
+    LCL = if(input$unit_of_work == "Minutes"){
+      CalculateLimits(x = df7$Total_minutes)$lcl
+    } else {CalculateLimits(x = df7$Total_patients)$lcl}
+
+    UP = if(input$unit_of_work == "Minutes"){
+      quantile(df7$Total_minutes, probs = 0.85)
+    } else {quantile(df7$Total_patients, probs = 0.85)}
+    
+    LP = if(input$unit_of_work == "Minutes"){
+      quantile(df7$Total_minutes, probs = (input$lower_perc)/100)
+    } else {quantile(df7$Total_patients, probs = (input$lower_perc)/100)}
+    
+    
+    # add nelson rules to entire dataset based on baseline data above
     df8 = df6()
     df9 = add_column(df8, EvaluateRules(
-      x = c(df8$Total_minutes), type = 'i', whichRules = c(1,5,3,2),
+      x = if(input$unit_of_work == "Minutes"){
+        c(df8$Total_minutes)
+      } else {c(df8$Total_patients)}, type = 'i', whichRules = c(1,5,3,2),
       lcl = LCL, cl= Mean, ucl = UCL
       ))
     
     # rectangle
     rect_range = tibble(xmin=as.Date(input$baseline_date[1]),
                         xmax=as.Date(input$baseline_date[2]),
-                        ymin=min(df8$Total_minutes)*0.95,
-                        ymax=max(df8$Total_minutes)*1.05)
+                        ymin= if(input$unit_of_work == "Minutes"){
+                          min(df8$Total_minutes)*0.95
+                        } else {min(df8$Total_patients)*0.95},
+                        ymax= if(input$unit_of_work == "Minutes"){
+                          max(df8$Total_minutes)*1.05
+                        } else {max(df8$Total_patients)*1.05})
     
     # ggplot
-    ggplot(data=df6())+
-      geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
-                                     ymin=ymin, ymax=ymax),
-                color="grey20",
-                alpha=0.2,
-                inherit.aes = FALSE)+
-      geom_line(aes(x=Date, y=Total_minutes))+
-      geom_hline(yintercept = LP, lty=2, col="purple")+
-      geom_hline(yintercept = UP, lty=2, col="red")+
-      geom_hline(yintercept = UCL, lty=3, col="blue")+
-      geom_hline(yintercept = LCL, lty=3, col="orange")+
-      geom_hline(yintercept = Mean, lty=3, col="brown")+
-      geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_minutes),
-                 color="red", shape=15)+
-      geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_minutes),
-                 color="green", shape=15)+
-      geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_minutes),
-                 color="purple", shape=15)+
-      geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_minutes),
-                 color="orange", shape=15)+
-      theme_bw()
+    if(input$unit_of_work == "Minutes"){
+      ggplot(data=df6())+
+        geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
+                                       ymin=ymin, ymax=ymax),
+                  color="grey20",
+                  alpha=0.2,
+                  inherit.aes = FALSE)+
+        geom_line(aes(x=Date, y=Total_minutes))+
+        geom_hline(yintercept = LP, lty=2, col="purple")+
+        geom_hline(yintercept = UP, lty=2, col="red")+
+        geom_hline(yintercept = UCL, lty=3, col="blue")+
+        geom_hline(yintercept = LCL, lty=3, col="orange")+
+        geom_hline(yintercept = Mean, lty=3, col="brown")+
+        geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_minutes),
+                   color="red", shape=15)+
+        geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_minutes),
+                   color="green", shape=15)+
+        geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_minutes),
+                   color="purple", shape=15)+
+        geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_minutes),
+                   color="orange", shape=15)+
+        theme_bw()
+    } else {
+      ggplot(data=df6())+
+        geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
+                                       ymin=ymin, ymax=ymax),
+                  color="grey20",
+                  alpha=0.2,
+                  inherit.aes = FALSE)+
+        geom_line(aes(x=Date, y=Total_patients))+
+        geom_hline(yintercept = LP, lty=2, col="purple")+
+        geom_hline(yintercept = UP, lty=2, col="red")+
+        geom_hline(yintercept = UCL, lty=3, col="blue")+
+        geom_hline(yintercept = LCL, lty=3, col="orange")+
+        geom_hline(yintercept = Mean, lty=3, col="brown")+
+        geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_patients),
+                   color="red", shape=15)+
+        geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_patients),
+                   color="green", shape=15)+
+        geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_patients),
+                   color="purple", shape=15)+
+        geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_patients),
+                   color="orange", shape=15)+
+        theme_bw()
+    }
       
   })
+  # above are all plotly
 
   
   
