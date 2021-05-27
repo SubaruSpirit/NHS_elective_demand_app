@@ -296,6 +296,37 @@ server <- function(input, output, session) {
   } else { df5() }
   })
 
+###############################################################################    
+  # data frame when emergency is selected yes, this is for plotting SPC
+  columnsToAddE = reactive({
+    c(outer(c(input$urgency1,input$urgency2,input$urgency3),
+          seq_len(input$No_modalities), paste0))
+  })
+  
+  dfE1 = reactive({
+    dplyr::select(df4(), -dplyr::contains("Emergency"))
+  })
+  
+  dfE2 = reactive({
+    dfE1() %>%
+      replace(is.na(.), 0) %>%
+      rowwise() %>%mutate(Total_patients = sum(c_across(columnsToAddE())))
+  })
+  
+  dfE3 = reactive({if(input$unit_of_work == "Minutes"){
+    add_column(dfE2(), Total_minutes = sapply(
+      seq(4,
+          (ncol(dfE2())-1), length(columnsToAddE())/(input$No_modalities)), function(i){ 
+            rowSums(dfE2()[, i + 0:( 
+              (length(columnsToAddE())/(input$No_modalities)-1)
+            )])
+          }) %*% sapply(modality_minutes(), function(i){ input[[ i ]] } ))
+  } else { dfE2() }
+  })
+###############################################################################  
+
+  
+  # show uploaded dataframe with total patients or total minutes
   output$imported_data <- renderReactable({
     reactable(df6())
   })
@@ -330,9 +361,12 @@ server <- function(input, output, session) {
   })
   
   output$plot1 = renderPlotly({
+    # emergency data should not be incorporated in the SPC chart, so remove
+    
+    
     # filter the date as the input in the dateRangeInput, df7 is the baseline
-    df7 = dplyr::filter(
-      df6(), between(Date, input$baseline_date[1],
+    df7 = dplyr::filter( if(input$emergency=="No"){df6()}else{dfE3()},
+                         between(Date, input$baseline_date[1],
                             input$baseline_date[2])
     )
     
@@ -359,7 +393,7 @@ server <- function(input, output, session) {
     
     
     # add nelson rules to entire dataset based on baseline data above
-    df8 = df6()
+    df8 = if(input$emergency=="No"){df6()}else{dfE3()}
     df9 = add_column(df8, EvaluateRules(
       x = if(input$unit_of_work == "Minutes"){
         c(df8$Total_minutes)
@@ -379,7 +413,7 @@ server <- function(input, output, session) {
     
     # ggplot
     if(input$unit_of_work == "Minutes"){
-      ggplot(data=df6())+
+      ggplot(data=if(input$emergency=="No"){df6()}else{dfE3()})+
         geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
                                        ymin=ymin, ymax=ymax),
                   color="grey20",
@@ -401,7 +435,7 @@ server <- function(input, output, session) {
                    color="orange", shape=15)+
         theme_bw()
     } else {
-      ggplot(data=df6())+
+      ggplot(if(input$emergency=="No"){df6()}else{dfE3()})+
         geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
                                        ymin=ymin, ymax=ymax),
                   color="grey20",
