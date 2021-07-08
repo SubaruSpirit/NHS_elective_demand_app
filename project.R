@@ -7,6 +7,8 @@ library(reactable)
 library(reactlog)
 library(Rspc)
 library(plotly)
+library(lubridate)
+library(excelR)
 
 reactlog::reactlog_enable()
 list1 = read_csv("List.csv")
@@ -130,17 +132,18 @@ ui <- fluidPage(
              sidebarLayout(
                sidebarPanel(
                  selectInput(
-                   "select_season", label = "Display type",
-                   choices = c("1 season", "1+season")
-                 ),
-                 dateRangeInput(
-                   "baseline_date", label = "Baseline selection",
-                   format = "dd-mm-yyyy"
+                   "select_season", label = "Baseline Seasons",
+                   choices = c("1","2","3","4"), selected = "1"
                  ),
                  h5("Baseline period"),
                  verbatimTextOutput(
                    "baseline_period"
-                 )
+                 ),
+                 dateRangeInput(
+                   "baseline_date", label = "Season 1",
+                   format = "dd-mm-yyyy"
+                 ),
+                 actionButton("jump_to_capacity","Next")
                  ,width = 3
                ),
                mainPanel(
@@ -152,6 +155,53 @@ ui <- fluidPage(
              )
              ,
              value = "panel3"),
+    tabPanel("Capacity",
+             titlePanel("Capacity"),
+             sidebarLayout(
+               sidebarPanel(
+                 dateInput("capacity_start", label = "Start Date",
+                           format = "dd-mm-yyyy",
+                           value = as.Date("01-05-2019", format="%d-%m-%Y")),
+                 dateInput("capacity_end", label = "End Date",
+                           format = "dd-mm-yyyy",
+                           value = as.Date("30-04-2020", format="%d-%m-%Y")),
+                 selectInput("capacity_unit",
+                             label = "Units",
+                             choices = list("Patients","Minutes"), selected = "No"),
+                 width = 2
+               ),
+               mainPanel(
+                 fluidRow(
+                   column(4,
+                          titlePanel("Core Capacity")
+                   ),
+                   column(4,
+                          downloadButton("download2", "Download Template")
+                   ),
+                   column(4,
+                          fileInput("file_import2",
+                                    "Import Core Capacity", accept = c(".csv", ".tsv"))
+                   )
+                 ),
+                 fluidRow(
+                   reactableOutput("template2")),
+                 fluidRow(
+                   column(4,
+                          titlePanel("Ad-hoc Capacity")
+                   ),
+                   column(4,
+                          downloadButton("download3", "Download Template")
+                   ),
+                   column(4,
+                          fileInput("file_import3",
+                                    "Import Adhoc Capacity", accept = c(".csv", ".tsv"))
+                   )
+                 ),
+                 fluidRow(
+                   reactableOutput("template3"))
+                 , width = 8
+               ))
+             ,value = "panel4"),
     widths = c(2, 10)
   )
 )
@@ -243,7 +293,7 @@ server <- function(input, output, session) {
   
   # download the data frame
   output$download1 <- downloadHandler(
-    filename = function(){"user_template.csv"}, 
+    filename = function(){"demand_template.csv"}, 
     content = function(file){
       write.csv(df3(), file,row.names = FALSE)
     }
@@ -360,10 +410,9 @@ server <- function(input, output, session) {
       ),"weeks")
   })
   
-  output$plot1 = renderPlotly({
-    # emergency data should not be incorporated in the SPC chart, so remove
-    
-    
+  
+  # plot the SPC chart
+  output$plot1 = renderPlotly({   
     # filter the date as the input in the dateRangeInput, df7 is the baseline
     df7 = dplyr::filter( if(input$emergency=="No"){df6()}else{dfE3()},
                          between(Date, input$baseline_date[1],
@@ -405,15 +454,15 @@ server <- function(input, output, session) {
     rect_range = tibble(xmin=as.Date(input$baseline_date[1]),
                         xmax=as.Date(input$baseline_date[2]),
                         ymin= if(input$unit_of_work == "Minutes"){
-                          min(df8$Total_minutes)*0.95
-                        } else {min(df8$Total_patients)*0.95},
+                          min(df8$Total_minutes)*0.9
+                        } else {min(df8$Total_patients)*0.9},
                         ymax= if(input$unit_of_work == "Minutes"){
-                          max(df8$Total_minutes)*1.05
-                        } else {max(df8$Total_patients)*1.05})
+                          max(df8$Total_minutes)*1.1
+                        } else {max(df8$Total_patients)*1.1})
     
     # ggplot
     if(input$unit_of_work == "Minutes"){
-      ggplot(data=if(input$emergency=="No"){df6()}else{dfE3()})+
+      ggplot(data=df8)+
         geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
                                        ymin=ymin, ymax=ymax),
                   color="grey20",
@@ -435,7 +484,7 @@ server <- function(input, output, session) {
                    color="orange", shape=15)+
         theme_bw()
     } else {
-      ggplot(if(input$emergency=="No"){df6()}else{dfE3()})+
+      ggplot(df8)+
         geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
                                        ymin=ymin, ymax=ymax),
                   color="grey20",
@@ -460,7 +509,150 @@ server <- function(input, output, session) {
       
   })
   # above are all plotly
+  
+  # next button
+  observeEvent(input$jump_to_capacity, {
+    updateTabsetPanel(session, "tabset",
+                      selected = "panel4")
+  })
 
+### Capacity #################################################################
+  # Capacity dates
+  capacity_startDate = reactive({ymd(as.Date(input$capacity_start,
+                                             format="%d-%m-%Y"))})
+  capacity_endDate = reactive({ymd(as.Date(input$capacity_start,
+                                           format="%d-%m-%Y")%m+% years(1))})
+  
+  cdf1 = reactive({tibble(Year=strftime(seq(capacity_startDate(),
+                                            capacity_endDate(),
+                                            by = '1 week'), format = "%G"),
+                          Week=strftime(seq(capacity_startDate(),
+                                            capacity_endDate(),
+                                            by = '1 week'), format = "%V"),
+                          Date=seq(capacity_startDate(),
+                                   capacity_endDate(),
+                                   by = '1 week'))})
+
+  observeEvent(input$capacity_start, {
+    updateDateInput(
+      session, "capacity_end",
+
+      value = last(cdf1()[["Date"]])
+    )
+  })
+  
+  # capacity template
+  # core capacity
+  core_data = reactive({
+    tibble(Session_Name = rep("",10),
+               Description1="", Description2="",
+               Weeks_per_year="",
+               Patients_per_clinic="")
+  })
+  
+  output$template2 <- renderReactable({
+    reactable(core_data())
+  })
+
+  output$download2 <- downloadHandler(
+    filename = function(){"core_capacity.csv"}, 
+    content = function(file){
+      write.csv(core_data(), file,row.names = FALSE)
+    }
+  )
+  
+  
+  core_import <- reactive({
+    req(input$file_import2)
+    
+    ext <- tools::file_ext(input$file_import2$name)
+    switch(ext,
+           csv = vroom::vroom(input$file_import2$datapath, delim = ","
+           ),
+           tsv = vroom::vroom(input$file_import2$datapath, delim = "\t"
+           ),
+           validate("Invalid file; Please upload a .csv or .tsv file")
+    )
+  })
+  
+  core_import2 = reactive({
+    add_column(core_import(),
+               Total_minutes = core_import()[["Weeks_per_year"]] * 
+                 core_import()[["Patients_per_clinic"]])
+  })
+  
+  core_import3 = reactive({
+    add_column(core_import2(),
+               Average_per_week = round(core_import2()[["Total_minutes"]]/52))
+  })
+  
+  
+  # after import
+  observeEvent(input$file_import2, {
+    output$template2 <- renderReactable({
+      reactable(core_import3())
+    })
+  })
+  
+  # adhoc capacity
+  adhoc_data = reactive({
+    tibble(Session_Name = rep("",10),
+           Description1="", Description2="",
+           Weeks_per_year="",
+           Patients_per_clinic="")
+  })
+  
+  output$template3 <- renderReactable({
+    reactable(adhoc_data())
+  })
+  
+  output$download3 <- downloadHandler(
+    filename = function(){"adhoc_capacity.csv"}, 
+    content = function(file){
+      write.csv(adhoc_data(), file,row.names = FALSE)
+    }
+  )
+  
+  
+  adhoc_import <- reactive({
+    req(input$file_import3)
+    
+    ext <- tools::file_ext(input$file_import3$name)
+    switch(ext,
+           csv = vroom::vroom(input$file_import3$datapath, delim = ","
+           ),
+           tsv = vroom::vroom(input$file_import3$datapath, delim = "\t"
+           ),
+           validate("Invalid file; Please upload a .csv or .tsv file")
+    )
+  })
+  
+  adhoc_import2 = reactive({
+    add_column(adhoc_import(),
+               Total_minutes = adhoc_import()[["Weeks_per_year"]] * 
+                 adhoc_import()[["Patients_per_clinic"]])
+  })
+  
+  adhoc_import3 = reactive({
+    add_column(adhoc_import2(),
+               Average_per_week = round(adhoc_import2()[["Total_minutes"]]/52))
+  })
+  
+  
+  # after import
+  observeEvent(input$file_import3, {
+    output$template3 <- renderReactable({
+      reactable(adhoc_import3())
+    })
+  })
+  
+  
+  
+  
+  
+  
+  
+  
   
   
 }
