@@ -15,20 +15,22 @@ reactlog::reactlog_enable()
 list1 = read_csv("List.csv")
 
 ui <- dashboardPage(
-  dashboardHeader(title = "Steps"),
+  dashboardHeader(title = "Core Model"),
   dashboardSidebar(
     sidebarMenu(
       id = "tabset",
       menuItem("Setup", tabName = "Setup", icon = icon("play-circle")),
       menuItem("Demand", tabName = "Demand", icon = icon("user")),
       menuItem("SPC Chart", tabName = "SPC", icon = icon("dashboard")),
-      menuItem("Capactiy", tabName = "Capacity", icon = icon("bed")),
+      menuItem("Capacity", tabName = "Capacity", icon = icon("bed")),
       menuItem("Capacity Summary", tabName = "Capacity_Summary",
                icon = icon("bed"))
-    )
+    ),
+    collapsed = F #T
   ),
   dashboardBody(
     tabItems(
+      
       # Setup
       tabItem(tabName = "Setup",
               titlePanel("Setup"),
@@ -97,7 +99,7 @@ ui <- dashboardPage(
               )
       ),
       
-      # Second tab content
+      # Demand
       tabItem(tabName = "Demand",
               titlePanel("Demand"),
               sidebarLayout(
@@ -166,9 +168,8 @@ ui <- dashboardPage(
                   ,width = 3
                 ),
                 mainPanel(
-                  plotlyOutput(
-                    "plot1"
-                  )
+                  plotlyOutput( "plot1"),
+                  htmlOutput("nelson")
                   , width = 7
                 )
               )
@@ -179,15 +180,19 @@ ui <- dashboardPage(
               titlePanel("Capacity"),
               sidebarLayout(
                 sidebarPanel(
+                  selectInput("capacity_type",
+                              label = "Basic Or Planning",
+                              choices = list("Basic","Planning"), selected = "Basic"),
                   dateInput("capacity_start", label = "Start Date",
                             format = "dd-mm-yyyy",
                             value = as.Date("01-05-2019", format="%d-%m-%Y")),
-                  dateInput("capacity_end", label = "End Date",
+                  dateInput("capacity_end", label = "End Date (Don't USE)",
                             format = "dd-mm-yyyy",
                             value = as.Date("30-04-2020", format="%d-%m-%Y")),
+                  verbatimTextOutput("test10"),
                   selectInput("capacity_unit",
                               label = "Units",
-                              choices = list("Patients","Minutes"), selected = "No"),
+                              choices = list("Patients","Minutes"), selected = "Patients"),
                   actionButton("jump_to_capacity_summary","Next"),
                   width = 2
                 ),
@@ -197,7 +202,7 @@ ui <- dashboardPage(
                            titlePanel("Core Capacity")
                     ),
                     column(4,
-                           downloadButton("download2", "Download Template")
+                           downloadButton("download2", "Download Core Capacity")
                     ),
                     column(4,
                            fileInput("file_import2",
@@ -211,7 +216,7 @@ ui <- dashboardPage(
                            titlePanel("Ad-hoc Capacity")
                     ),
                     column(4,
-                           downloadButton("download3", "Download Template")
+                           downloadButton("download3", "Download Ad-hoc")
                     ),
                     column(4,
                            fileInput("file_import3",
@@ -226,7 +231,16 @@ ui <- dashboardPage(
       
       # Capacity Summary
       tabItem(tabName = "Capacity_Summary",
-              
+              titlePanel("Capacity Summary"),
+              sidebarLayout(
+                sidebarPanel(
+                  "",
+                  width = 2
+                ),
+                mainPanel(
+                  plotlyOutput("plot2"),
+                  width = 8
+                ))
       )
     )
   )
@@ -414,7 +428,7 @@ server <- function(input, output, session) {
   
   ### SPC chart ###############################################################
   # update the data range when click the next button
-  observeEvent(input$jump_to_spc, {
+  observeEvent(input$file_import, {
     updateDateRangeInput(
       session, "baseline_date",
       # start is 52 weeks before the last week data, can CRASH if data is 
@@ -475,6 +489,7 @@ server <- function(input, output, session) {
       lcl = LCL, cl= Mean, ucl = UCL
     ))
     
+    
     # rectangle
     rect_range = tibble(xmin=as.Date(input$baseline_date[1]),
                         xmax=as.Date(input$baseline_date[2]),
@@ -485,6 +500,9 @@ server <- function(input, output, session) {
                           max(df8$Total_minutes)*1.1
                         } else {max(df8$Total_patients)*1.1})
     
+    colours1 = c("UCL"="blue", "UP"="red", "LP"="purple", "Mean"="brown",
+                 "LCL"="orange", "Rule4"="orange", "Rule1"="brown",
+                 "Rule2"="green", "Rule3"="purple")
     # ggplot
     if(input$unit_of_work == "Minutes"){
       ggplot(data=df8)+
@@ -494,20 +512,23 @@ server <- function(input, output, session) {
                   alpha=0.2,
                   inherit.aes = FALSE)+
         geom_line(aes(x=Date, y=Total_minutes))+
-        geom_hline(yintercept = LP, lty=2, col="purple")+
-        geom_hline(yintercept = UP, lty=2, col="red")+
-        geom_hline(yintercept = UCL, lty=3, col="blue")+
-        geom_hline(yintercept = LCL, lty=3, col="orange")+
-        geom_hline(yintercept = Mean, lty=3, col="brown")+
-        geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_minutes),
-                   color="red", shape=15)+
-        geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_minutes),
-                   color="green", shape=15)+
-        geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_minutes),
-                   color="purple", shape=15)+
-        geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_minutes),
-                   color="orange", shape=15)+
-        theme_bw()
+        geom_hline(aes(col="UCL", yintercept = UCL), lty=3)+
+        geom_hline(aes(col="UP", yintercept = UP), lty=2)+
+        geom_hline(aes(col="LP", yintercept = LP), lty=2)+
+        geom_hline(aes(col="Mean", yintercept = Mean), lty=4)+
+        geom_hline(aes(col="LCL", yintercept = LCL), lty=3)+
+        geom_point(data=add_row(filter(df9, Rule1=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_minutes, col="Rule1"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule5=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_minutes, col="Rule2"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule3=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_minutes, col="Rule3"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule2=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_minutes, col="Rule4"), shape=15)+
+        theme_bw()+
+        labs(color="Legend", y="Total Minutes",
+             title = "Demand-SPC Chart (Minutes)")+
+        scale_color_manual(values = colours1)
     } else {
       ggplot(df8)+
         geom_rect(data=rect_range, aes(xmin=xmin, xmax=xmax,
@@ -516,24 +537,39 @@ server <- function(input, output, session) {
                   alpha=0.2,
                   inherit.aes = FALSE)+
         geom_line(aes(x=Date, y=Total_patients))+
-        geom_hline(yintercept = LP, lty=2, col="purple")+
-        geom_hline(yintercept = UP, lty=2, col="red")+
-        geom_hline(yintercept = UCL, lty=3, col="blue")+
-        geom_hline(yintercept = LCL, lty=3, col="orange")+
-        geom_hline(yintercept = Mean, lty=3, col="brown")+
-        geom_point(data=filter(df9, Rule1=="1"), aes(x=Date,y=Total_patients),
-                   color="red", shape=15)+
-        geom_point(data=filter(df9, Rule5=="1"), aes(x=Date,y=Total_patients),
-                   color="green", shape=15)+
-        geom_point(data=filter(df9, Rule3=="1"), aes(x=Date,y=Total_patients),
-                   color="purple", shape=15)+
-        geom_point(data=filter(df9, Rule2=="1"), aes(x=Date,y=Total_patients),
-                   color="orange", shape=15)+
-        theme_bw()
+        geom_hline(aes(col="UCL", yintercept = UCL), lty=3)+
+        geom_hline(aes(col="UP", yintercept = UP), lty=2)+
+        geom_hline(aes(col="LP", yintercept = LP), lty=2)+
+        geom_hline(aes(col="Mean", yintercept = Mean), lty=4)+
+        geom_hline(aes(col="LCL", yintercept = LCL), lty=3)+
+        geom_point(data=add_row(filter(df9, Rule1=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_patients, col="Rule1"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule5=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_patients, col="Rule2"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule3=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_patients, col="Rule3"), shape=15)+
+        geom_point(data=add_row(filter(df9, Rule2=="1"),Date=df8[["Date"]][1]),
+                   aes(x=Date,y=Total_patients, col="Rule4"), shape=15)+
+        theme_bw()+
+        labs(color="Legend", y="Total Minutes",
+             title = "Demand-SPC Chart (Patients)")+
+        scale_color_manual(values = colours1)
     }
     
   })
-  # above are all plotly
+### above are all plotly ##################################################
+  
+  
+  # Explanation of Nelson Rules
+  output$nelson = renderUI({
+    str1 = "Rule1: A data point is more than 3 sigma from the mean"
+    str2 = "Rule2: 2 out of 3 points are more than 2 signma from the mean,
+    with all 3 on the same side of the mean"
+    str3 = "Rule3: 6 consecutively rising or falling points"
+    str4 = "Rule4: a run of 9 or more points on the same side of the mean"
+    HTML(paste(str1, str2, str3, str4, sep = '<br/>'))
+  })
+  
   
   # next button
   observeEvent(input$jump_to_capacity, {
@@ -543,11 +579,21 @@ server <- function(input, output, session) {
   
   ### Capacity #################################################################
   # Capacity dates
+  
+  # get the capacity start date from the last date in the demand
+  observeEvent(input$file_import,{
+    updateDateInput(
+      session, "capacity_start",
+      value = last(df6()[["Date"]])
+    )
+  })
+  
   capacity_startDate = reactive({ymd(as.Date(input$capacity_start,
                                              format="%d-%m-%Y"))})
   capacity_endDate = reactive({ymd(as.Date(input$capacity_start,
                                            format="%d-%m-%Y")%m+% years(1))})
   
+  # dataframe of 53 weeks of user selected date
   cdf1 = reactive({tibble(Year=strftime(seq(capacity_startDate(),
                                             capacity_endDate(),
                                             by = '1 week'), format = "%G"),
@@ -558,21 +604,47 @@ server <- function(input, output, session) {
                                    capacity_endDate(),
                                    by = '1 week'))})
   
+  # dataframe of 52 weeks of starting on monday
+  cdf2 = reactive({
+    head(add_column(cdf1(), Date_Monday=floor_date(cdf1()[["Date"]], "weeks",
+                                              week_start = 1)),-1)
+  })
+  
+  capacity_time = reactive({
+    cdf2()[["Date_Monday"]]
+  })
+  
+  # update the capacity end date every time the capacity start updates
   observeEvent(input$capacity_start, {
     updateDateInput(
       session, "capacity_end",
       
       value = last(cdf1()[["Date"]])
     )
+    
+    # End Date in read only ////// test10
+    output$test10 = renderText({
+      as.character(last(cdf1()[["Date"]]))
+      })
   })
+
   
   # capacity template
   # core capacity
   core_data = reactive({
-    tibble(Session_Name = rep("",10),
-           Description1="", Description2="",
-           Weeks_per_year="",
-           Patients_per_clinic="")
+    if(input$capacity_type == "Basic"){
+      tibble(Session_Name = rep("",10),
+             Description1="", Description2="",
+             Weeks_per_year="",
+             Patients_per_clinic="")
+    } else {
+      add_column(tibble(Session_Name = rep("",10),
+                        Description1="", Description2="",
+                        Weeks_per_year="",
+                        Patients_per_clinic=""),
+                 !!!set_names(as.list(rep("",length(capacity_time()))),
+                              nm=capacity_time()))
+    }
   })
   
   output$template2 <- renderReactable({
@@ -592,9 +664,17 @@ server <- function(input, output, session) {
     
     ext <- tools::file_ext(input$file_import2$name)
     switch(ext,
-           csv = vroom::vroom(input$file_import2$datapath, delim = ","
+           csv = vroom::vroom(input$file_import2$datapath, delim = ",",
+                              col_types = c(Session_Name = "c",
+                                            Description1="c", Description2="c",
+                                            Weeks_per_year="d",
+                                            Patients_per_clinic="d")
            ),
-           tsv = vroom::vroom(input$file_import2$datapath, delim = "\t"
+           tsv = vroom::vroom(input$file_import2$datapath, delim = "\t",
+                              col_types = c(Session_Name = "c",
+                                            Description1="c", Description2="c",
+                                            Weeks_per_year="d",
+                                            Patients_per_clinic="d")
            ),
            validate("Invalid file; Please upload a .csv or .tsv file")
     )
@@ -602,13 +682,15 @@ server <- function(input, output, session) {
   
   core_import2 = reactive({
     add_column(core_import(),
-               Total_minutes = core_import()[["Weeks_per_year"]] * 
-                 core_import()[["Patients_per_clinic"]])
+               Total_patients = core_import()[["Weeks_per_year"]] * 
+                 core_import()[["Patients_per_clinic"]],
+               .after = "Patients_per_clinic")
   })
   
   core_import3 = reactive({
     add_column(core_import2(),
-               Average_per_week = round(core_import2()[["Total_minutes"]]/52))
+               Average_per_week = round(core_import2()[["Total_patients"]]/52),
+               .after = "Total_patients")
   })
   
   
@@ -619,12 +701,23 @@ server <- function(input, output, session) {
     })
   })
   
+  
+  
   # adhoc capacity
   adhoc_data = reactive({
-    tibble(Session_Name = rep("",10),
-           Description1="", Description2="",
-           Weeks_per_year="",
-           Patients_per_clinic="")
+    if(input$capacity_type == "Basic"){
+      tibble(Session_Name = rep("",10),
+             Description1="", Description2="",
+             Weeks_per_year="",
+             Patients_per_clinic="")
+    } else {
+      add_column(tibble(Session_Name = rep("",10),
+                        Description1="", Description2="",
+                        Weeks_per_year="",
+                        Patients_per_clinic=""),
+                 !!!set_names(as.list(rep("",length(capacity_time()))),
+                              nm=capacity_time()))
+    }
   })
   
   output$template3 <- renderReactable({
@@ -644,9 +737,17 @@ server <- function(input, output, session) {
     
     ext <- tools::file_ext(input$file_import3$name)
     switch(ext,
-           csv = vroom::vroom(input$file_import3$datapath, delim = ","
+           csv = vroom::vroom(input$file_import3$datapath, delim = ",",
+                              col_types = c(Session_Name = "c",
+                                            Description1="c", Description2="c",
+                                            Weeks_per_year="d",
+                                            Patients_per_clinic="d")
            ),
-           tsv = vroom::vroom(input$file_import3$datapath, delim = "\t"
+           tsv = vroom::vroom(input$file_import3$datapath, delim = "\t",
+                              col_types = c(Session_Name = "c",
+                                            Description1="c", Description2="c",
+                                            Weeks_per_year="d",
+                                            Patients_per_clinic="d")
            ),
            validate("Invalid file; Please upload a .csv or .tsv file")
     )
@@ -654,13 +755,15 @@ server <- function(input, output, session) {
   
   adhoc_import2 = reactive({
     add_column(adhoc_import(),
-               Total_minutes = adhoc_import()[["Weeks_per_year"]] * 
-                 adhoc_import()[["Patients_per_clinic"]])
+               Total_patients = adhoc_import()[["Weeks_per_year"]] * 
+                 adhoc_import()[["Patients_per_clinic"]],
+               .after = "Patients_per_clinic")
   })
   
   adhoc_import3 = reactive({
     add_column(adhoc_import2(),
-               Average_per_week = round(adhoc_import2()[["Total_minutes"]]/52))
+               Average_per_week = round(adhoc_import2()[["Total_patients"]]/52),
+               .after = "Total_patients")
   })
   
   
@@ -671,6 +774,7 @@ server <- function(input, output, session) {
     })
   })
   
+  
   # next button
   observeEvent(input$jump_to_capacity_summary, {
     updateTabItems(session, "tabset",
@@ -678,7 +782,28 @@ server <- function(input, output, session) {
   })
   
   
+### Capacity Summary #########################################################
+  cdf3 = reactive({
+    add_column(cdf2(), total_core = sum(core_import3()[["Total_patients"]]),
+               total_adhoc = sum(adhoc_import3()[["Total_patients"]]))
+  })
   
+  cdf4 = reactive({
+    add_column(cdf3(), total = cdf3()[["total_core"]] + cdf3()[["total_adhoc"]])
+  })
+  
+  output$plot2 = renderPlotly({
+    ggplot(cdf4(),aes(x=Date_Monday, y=round(total_core/52)))+
+      geom_ribbon(aes(ymin=0, ymax=round(total_core/52)), 
+                  fill="blue")+
+      geom_ribbon(aes(ymin=round(total_core/52), ymax=round(total/52)), 
+                  fill="green")+
+      ylim(0,round(cdf4()[["total"]][1]/52)+2)+
+      scale_x_date(date_breaks = "1 week", date_labels = "%d-%m-%Y")+
+      theme_bw()+
+      theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  })
+
   
   
   
@@ -687,3 +812,18 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
