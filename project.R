@@ -269,6 +269,7 @@ ui <- dashboardPage(
                 ),
                 mainPanel(
                   plotlyOutput("plot2"),
+                  dataTableOutput("capacity_summary_test"),
                   width = 8
                 ))
       ),
@@ -360,6 +361,15 @@ ui <- dashboardPage(
                                 ))
               ),
               fluidRow(
+                column(8,
+                       ""
+                ),
+
+                column(2,
+                       h4("Demand Split")
+                )
+              ),
+              fluidRow(
                 column(2,
                        div(class = "myclass1",
                            verbatimTextOutput("pathway1")
@@ -381,14 +391,15 @@ ui <- dashboardPage(
                        numericInput("pathway1_reb", label = "Rebookings seen in", min = 0,
                                     max = 100, step=1, value = 0)
                 ),
-                column(2,
-                       disabled(numericInputIcon(
-                         inputId = "pd1",
-                         label = "Demand",
-                         value = 0,
-                         step=1,
-                         icon = list(NULL, icon("percent"))))
+                column(1,
+                       div(class = "myclass1",
+                           verbatimTextOutput("pd1")
+                       )
+                ),
+                column(1,
+                       uiOutput("percent1")
                 )
+                
               ),
               fluidRow(
                 column(2,
@@ -412,13 +423,13 @@ ui <- dashboardPage(
                        numericInput("pathway2_reb", label = "Rebookings seen in", min = 0,
                                     max = 100, step=1, value = 0)
                 ),
-                column(2,
-                       disabled(numericInputIcon(
-                         inputId = "pd2",
-                         label = "Demand",
-                         value = 0,
-                         step=1,
-                         icon = list(NULL, icon("percent"))))
+                column(1,
+                       div(class = "myclass2",
+                           verbatimTextOutput("pd2")
+                       )
+                ),
+                column(1,
+                       uiOutput("percent2")
                 )
               ),
               fluidRow(
@@ -443,13 +454,13 @@ ui <- dashboardPage(
                        numericInput("pathway3_reb", label = "Rebookings seen in", min = 0,
                                     max = 100, step=1, value = 0)
                 ),
-                column(2,
-                       disabled(numericInputIcon(
-                         inputId = "pd3",
-                         label = "Demand",
-                         value = 0,
-                         step=1,
-                         icon = list(NULL, icon("percent"))))
+                column(1,
+                       div(class = "myclass3",
+                           verbatimTextOutput("pd3")
+                       )
+                ),
+                column(1,
+                       uiOutput("percent3")
                 )
               ),
               fluidRow(
@@ -506,6 +517,31 @@ ui <- dashboardPage(
                   plotlyOutput("summary_plot1"),
                   plotlyOutput("summary_plot2"),
                   textOutput("summary_text"),
+                  width = 6
+                )),
+              fluidRow(column(10,
+                              div(class = "myclass9",
+                                  verbatimTextOutput("summary2")
+                              )
+              )),
+              sidebarLayout(
+                sidebarPanel(
+                 h5("Current Waiting list"),
+                 verbatimTextOutput("current_waiting"),
+                 h5("Sustainable Waiting list"),
+                 verbatimTextOutput("sustainable_waiting"),
+                 h5("Clearance"),
+                 verbatimTextOutput("clearance"),
+                 numericInput("clear_waiting",
+                              label = "I would like to clear backlog in weeks",
+                              value=0),
+                 h5("This will require additional"),
+                 verbatimTextOutput("additional_capacity"),
+                  width = 4
+                ),
+                mainPanel(
+                  plotlyOutput("sustainable_plot"),
+                  dataTableOutput("summary_testing10"),
                   width = 6
                 ))
       )
@@ -1095,12 +1131,12 @@ server <- function(input, output, session) {
   core_import2 = reactive({
     if(input$capacity_unit=="Patients"){
       add_column(core_import(),
-                 Total_patients = core_import()[["Weeks_per_year"]] * 
+        Total_patients = core_import()[["Weeks_per_year"]] * 
                    core_import()[["Patients_per_clinic"]],
                  .after = "Patients_per_clinic")
     } else {
       add_column(core_import(),
-                 Total_minutes = core_import()[["Weeks_per_year"]] * 
+        Total_minutes = core_import()[["Weeks_per_year"]] * 
                    core_import()[["Minutes_per_clinic"]],
                  .after = "Minutes_per_clinic")
     }
@@ -1521,6 +1557,17 @@ e -> h
   output$pathway2 = renderText({input$urgency2})
   output$pathway3 = renderText({input$urgency3})
   
+  # percentage symbol
+  output$percent1 <- renderText({ 
+    as.character(icon("percent"))
+  })
+  output$percent2 <- renderText({ 
+    as.character(icon("percent"))
+  })
+  output$percent3 <- renderText({ 
+    as.character(icon("percent"))
+  })
+  
   pathway_df = reactive({
     tibble(type = c(input$urgency3,input$urgency2,input$urgency1),
            xmin = c(
@@ -1588,83 +1635,77 @@ e -> h
   })
   
   # split demand for all urgencies
-  observeEvent(input$baseline_start,{
-    
-    updateNumericInputIcon(
-      session,
-      "pd1",
-      value = 
-        if(input$unit_of_work == "Patients"){
-          round(
-            (sum(df7()[,match(c(outer(input$urgency1,
-                                      seq_len(input$No_modalities), paste0)),
-                              colnames(df7()))]) /
-               sum(df7()[["Total_patients"]])) *100
-          )
-        } else {
-          round(
-            (as.numeric(sapply(df7()[,match(c(outer(input$urgency1,
-                                                    seq_len(input$No_modalities),
-                                                    paste0)), colnames(df7()))],
-                               sum) %*% as.numeric(map_chr(modality_minutes(),
-                                                           ~input[[.x]]%||% ""))) /
-               sum(df7()[["Total_minutes"]])) *100
-          )
-        }
-    )
-    
-    updateNumericInputIcon(
-      session,
-      "pd2",
-      value = 
-        if(input$unit_of_work == "Patients"){
-          round(
-            (sum(df7()[,match(c(outer(input$urgency2,
-                                      seq_len(input$No_modalities), paste0)),
-                              colnames(df7()))]) /
-               sum(df7()[["Total_patients"]])) *100
-          )
-        } else {
-          round(
-          (as.numeric(sapply(df7()[,match(c(outer(input$urgency2,
-                                                  seq_len(input$No_modalities),
-                                                  paste0)), colnames(df7()))],
-                        sum) %*% as.numeric(map_chr(modality_minutes(),
-                                                    ~input[[.x]]%||% ""))) /
-            sum(df7()[["Total_minutes"]])) *100
-          )
-        }
-    )
-    
-    updateNumericInputIcon(
-      session,
-      "pd3",
-      value = 
-        if(input$unit_of_work == "Patients"){
-          round(
-            (sum(df7()[,match(c(outer(input$urgency3,
-                                      seq_len(input$No_modalities), paste0)),
-                              colnames(df7()))]) /
-               sum(df7()[["Total_patients"]])) *100
-          )
-        } else {
-          round(
-            (as.numeric(sapply(df7()[,match(c(outer(input$urgency3,
-                                                    seq_len(input$No_modalities),
-                                                    paste0)), colnames(df7()))],
-                               sum) %*% as.numeric(map_chr(modality_minutes(),
-                                                           ~input[[.x]]%||% ""))) /
-               sum(df7()[["Total_minutes"]])) *100
-          )
-        }
-    )
+  output$pd1 = renderText({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency1,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency1,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
   })
+  
+  output$pd2 = renderText({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency2,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency2,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
+  })
+  
+  output$pd3 = renderText({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency3,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency3,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
+  })
+  
+  
 
   
   
   ### Summary ###############################################################
   output$summary1 = renderText({
     "Required capacity vs available capacity (weekly)"
+  })
+  
+  output$summary2 = renderText({
+    "Current waiting list vs Estimated sustainable waiting list"
   })
   
   # minutes option only available when minutes is selected
@@ -1677,12 +1718,8 @@ e -> h
   })
   
   # test\\\\\\
-  output$summary_text = renderPrint({
-    df_summary = select(df6(), Date, Total_patients)
-    colnames(df_summary) = c("ds","y")
-    
-    as.Date(input$capacity_start,format="%d-%m-%Y")
-  })
+  #output$summary_text = renderPrint({
+  #})
   
   
   
@@ -2078,11 +2115,389 @@ e -> h
         
         ggplotly(p, tooltip = "text")
       }
-      
     }
-      
   })
   
+  
+  ### waiting list ##########################################################
+  current_waiting_list = reactive({
+    if(input$unit_of_work=="Patients"){
+      sum(as.numeric(map_chr(waiting_list(),~input[[.x]]%||% "")))
+    } else {
+      round(
+      sum(as.numeric(map_chr(waiting_list(),~input[[.x]]%||% ""))) *
+        (sum(df6()[["Total_minutes"]]) / sum(df6()[["Total_patients"]]))
+      )
+    }
+  })
+  
+  output$current_waiting = renderText({
+    current_waiting_list()
+  })
+  
+  output$sustainable_waiting = renderText({
+    paste(sustainable_list_lower(), "to", sustainable_list_higher())
+  })
+  
+  output$clearance = renderText({
+    paste(0, "to", current_waiting_list() - sustainable_list_lower())
+  })
+  
+  observeEvent(input$clear_waiting,{
+    updateNumericInput(
+      session,
+      "clear_waiting",
+      label = paste(
+        "I would like to clear backlog in", input$clear_waiting, "weeks"
+      )
+    )
+  })
+  
+  output$additional_capacity = renderText({
+    if(input$unit_of_work=="Patients"){
+      paste(
+        round((current_waiting_list() - sustainable_list_higher())/input$clear_waiting),
+        "to",
+        ceiling((current_waiting_list() - sustainable_list_lower())/input$clear_waiting),
+        "patients per week"
+      )
+    } else {
+      paste(
+        round((current_waiting_list() - sustainable_list_higher())/input$clear_waiting),
+        "to",
+        ceiling((current_waiting_list() - sustainable_list_lower())/input$clear_waiting),
+        "minutes per week"
+      )
+    }
+  })
+  
+  
+  urgency1_demand = reactive({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency1,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency1,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
+  })
+  
+  urgency2_demand = reactive({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency2,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency2,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
+  })
+  
+  urgency3_demand = reactive({
+    if(input$unit_of_work == "Patients"){
+      round(
+        (sum(df7()[,match(c(outer(input$urgency3,
+                                  seq_len(input$No_modalities), paste0)),
+                          colnames(df7()))]) /
+           sum(df7()[["Total_patients"]])) *100
+      )
+    } else {
+      round(
+        (as.numeric(sapply(df7()[,match(c(outer(input$urgency3,
+                                                seq_len(input$No_modalities),
+                                                paste0)), colnames(df7()))],
+                           sum) %*% as.numeric(map_chr(modality_minutes(),
+                                                       ~input[[.x]]%||% ""))) /
+           sum(df7()[["Total_minutes"]])) *100
+      )
+    }
+  })
+  
+  # forecast
+  df_waiting = reactive({
+    if(input$unit_of_work == "Patients"){
+    select(df6(), Date, Total_patients) %>%
+        dplyr::rename(ds=Date, y=Total_patients)
+  } else {
+    select(df6(), Date, Total_minutes) %>%
+      dplyr::rename(ds=Date, y=Total_minutes)
+  }
+  })
+  
+  prophet_prep = reactive({
+    prophet(df_waiting(), seasonality.mode = 'multiplicative',
+              yearly.seasonality = T)
+  })
+  
+  future <- reactive({
+    make_future_dataframe(prophet_prep(),
+                                  periods = as.numeric(round(difftime(strptime(as.Date(input$capacity_start,format="%d-%m-%Y"),
+                                                                               format = "%Y-%m-%d"),
+                                                                      strptime(last(df_waiting()[["ds"]]),
+                                                                               format = "%Y-%m-%d"),
+                                                                      units="weeks"))+52),
+                                  freq = 'week')
+  })
+  
+  fcst <- reactive({predict(prophet_prep(), future())})
+  
+
+  
+  waiting1 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway1_seenby - input$pathway1_start)/2 + input$pathway1_start) *
+            (urgency1_demand()/100) *
+            (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+        )
+      } else {
+        round(
+          ((input$pathway1_seenby - input$pathway1_start)/2 + input$pathway1_start) *
+            (urgency1_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+
+    } else {
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway1_seenby - input$pathway1_start)/2 + input$pathway1_start) *
+            (urgency1_demand()/100) *
+            (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+        )
+      } else {
+        round(
+          ((input$pathway1_seenby - input$pathway1_start)/2 + input$pathway1_start) *
+            (urgency1_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+    }
+  })
+  
+  waiting2 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway2_seenby - input$pathway2_start)/2 + input$pathway2_start) *
+            (urgency2_demand()/100) *
+            (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+        )
+      } else {
+        round(
+          ((input$pathway2_seenby - input$pathway2_start)/2 + input$pathway2_start) *
+            (urgency2_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+    } else {
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway2_seenby - input$pathway2_start)/2 + input$pathway2_start) *
+            (urgency2_demand()/100) *
+            (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+        )
+      } else {
+        round(
+          ((input$pathway2_seenby - input$pathway2_start)/2 + input$pathway2_start) *
+            (urgency2_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+    }
+  })
+  
+  waiting3 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway3_seenby - input$pathway3_start)/2 + input$pathway3_start) *
+            (urgency3_demand()/100) *
+            (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+        )
+      } else {
+        round(
+          ((input$pathway3_seenby - input$pathway3_start)/2 + input$pathway3_start) *
+            (urgency3_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+    } else {
+      if (input$summary_option == "Baseline"){
+        round(
+          ((input$pathway3_seenby - input$pathway3_start)/2 + input$pathway3_start) *
+            (urgency3_demand()/100) *
+            (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+        )
+      } else {
+        round(
+          ((input$pathway3_seenby - input$pathway3_start)/2 + input$pathway3_start) *
+            (urgency3_demand()/100) *
+            (sum(tail(fcst(),52)[["yhat"]])/52)
+        )
+      }
+    }
+  })
+  
+  rebooking1 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency1_demand()/100) *
+          input$pathway1_reb *
+          (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency1_demand()/100) *
+          input$pathway1_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    } else {
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency1_demand()/100) *
+          input$pathway1_reb *
+          (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency1_demand()/100) *
+          input$pathway1_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    }
+  })
+  
+  rebooking2 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency2_demand()/100) *
+          input$pathway2_reb *
+          (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency2_demand()/100) *
+          input$pathway2_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    } else {
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency2_demand()/100) *
+          input$pathway2_reb *
+          (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency2_demand()/100) *
+          input$pathway2_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    }
+  })
+  
+  rebooking3 = reactive({
+    if(input$unit_of_work == "Patients"){
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency3_demand()/100) *
+          input$pathway3_reb *
+          (sum(df7()[["Total_patients"]])/NROW(df7()[["Total_patients"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency3_demand()/100) *
+          input$pathway3_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    } else {
+      if (input$summary_option == "Baseline"){
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency3_demand()/100) *
+          input$pathway3_reb *
+          (sum(df7()[["Total_minutes"]])/NROW(df7()[["Total_minutes"]]))
+      } else {
+        (input$nasl_rebooked/100) * (input$nasl/100) * (urgency3_demand()/100) *
+          input$pathway3_reb *
+          (sum(tail(fcst(),52)[["yhat"]])/52)
+      }
+    }
+  })
+  
+  sustainable_list_lower = reactive({
+    round(round(
+      waiting1() + waiting2() + waiting3() + 
+        rebooking1() + rebooking2() + rebooking3()
+    ) * 0.95)
+  })
+  
+  sustainable_list_higher = reactive({
+    round(round(
+      waiting1() + waiting2() + waiting3() + 
+        rebooking1() + rebooking2() + rebooking3()
+    ) * 1.05)
+  })
+  
+  output$sustainable_plot = renderPlotly({
+    if(input$summary_units=="Patients"){
+        p = ggplot() +
+          geom_rect(aes(xmin=1, xmax=5,
+                        ymin=sustainable_list_lower(),
+                        ymax=sustainable_list_higher(),
+                        text=paste(
+                          "Sustainable Waiting List: From",
+                          sustainable_list_lower(),
+                          "to",
+                          sustainable_list_higher()
+                        )), fill="#D5EEBB", color="#D5EEBB")+
+          ylim(0,max(current_waiting_list(),sustainable_list_higher())*1.2)+
+          theme(axis.title.x=element_blank(),
+                axis.text.x=element_blank(),
+                axis.ticks.x=element_blank())+
+          geom_point(aes(x=3, y=current_waiting_list(),
+                         text=paste(
+                           "Current Waiting List:",
+                           current_waiting_list()
+                         )),
+                     shape=18, col="#5F7A61", cex=4, stroke=0.6)+
+          labs(y="Patients",
+               title = "Waiting list position (Patients)")
+        
+        ggplotly(p, tooltip = "text")
+    } else{
+      p = ggplot() +
+        geom_rect(aes(xmin=1, xmax=5,
+                      ymin=sustainable_list_lower(),
+                      ymax=sustainable_list_higher(),
+                      text=paste(
+                        "Sustainable Waiting List: From",
+                        sustainable_list_lower(),
+                        "to",
+                        sustainable_list_higher()
+                      )), fill="#D5EEBB", color="#D5EEBB")+
+        ylim(0,max(current_waiting_list(),sustainable_list_higher())*1.2)+
+        theme(axis.title.x=element_blank(),
+              axis.text.x=element_blank(),
+              axis.ticks.x=element_blank())+
+        geom_point(aes(x=3, y=current_waiting_list(),
+                       text=paste(
+                         "Current Waiting List:",
+                         current_waiting_list()
+                       )),
+                   shape=18, col="#5F7A61", cex=4, stroke=0.6)+
+        labs(y="Minutes",
+             title = "Waiting list position (Minutes)")
+      
+      ggplotly(p, tooltip = "text")
+    }
+  })
   
   
   
