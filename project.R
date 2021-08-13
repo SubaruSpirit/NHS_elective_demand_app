@@ -2140,7 +2140,11 @@ e -> h
   })
   
   output$clearance = renderText({
-    paste(0, "to", current_waiting_list() - sustainable_list_lower())
+    if (current_waiting_list() - sustainable_list_lower()>0) {
+      paste(0, "to", current_waiting_list() - sustainable_list_lower())
+    } else {
+      0
+    }
   })
   
   observeEvent(input$clear_waiting,{
