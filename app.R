@@ -891,7 +891,7 @@ server <- function(input, output, session) {
         geom_point(data=add_row(filter(df9, Rule2=="1"),Date=df8[["Date"]][1]),
                    aes(x=Date,y=Total_patients, col="Rule4"), shape=15)+
         theme_bw()+
-        labs(color="Legend", y="Total Minutes",
+        labs(color="Legend", y="Total Patients",
              title = "Demand-SPC Chart (Patients)")+
         scale_color_manual(values = colours1)
     }
