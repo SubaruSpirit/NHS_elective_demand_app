@@ -1,0 +1,25 @@
+Session_Name,Description1,Description2,Weeks_per_year,Minutes_per_clinic
+Monday,SRH,CT1,47,720
+Tuesday,SRH,CT1,52,720
+Wednesday,SRH,CT1,52,720
+Thursday,SRH,CT1,52,720
+Friday,SRH,CT1,49,720
+Saturday,SRH,CT1,52,570
+Sunday,SRH,CT1,52,570
+Bank holiday,SRH,CT1,9,0
+Monday,SRH,CT2,47,540
+Tuesday,SRH,CT2,52,540
+Wednesday,SRH,CT2,52,540
+Thursday,SRH,CT2,52,540
+Friday,SRH,CT2,49,540
+Saturday,SRH,CT2,52,0
+Sunday,SRH,CT2,52,0
+Bank holiday,SRH,CT2,9,0
+Monday,SRH,EDCT,47,0
+Tuesday,SRH,EDCT,52,0
+Wednesday,SRH,EDCT,52,0
+Thursday,SRH,EDCT,52,0
+Friday,SRH,EDCT,49,0
+Saturday,SRH,EDCT,52,0
+Sunday,SRH,EDCT,52,0
+Bank holiday,SRH,EDCT,9,0
